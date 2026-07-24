@@ -42,9 +42,9 @@
        in chat/screenshots.
 
    NOTE ON COLUMN NAMES:
-     InvoiceNo and Remarks below are placeholder column names on iwApinv.
-     If your actual columns are named differently (e.g. InvNo, VendorInvNo,
-     Notes), update the SELECT list to match your real schema.
+     Refno and Remarks below are the actual columns on iwApinv used for
+     invoice number and remarks. If your schema differs, update the
+     SELECT list to match your real column names.
    ------------------------------------------------------------------------ */
 
 const express = require("express");
@@ -63,8 +63,8 @@ const API_KEY = "";
 const config = {
   server: "LGMC-DB",                       // matches "Data Source=lgmc-db"
   user : "sa",                             // matches "User ID=sa"
-  password: "s@p@ssw0rd1", // matches "Password=..."
-  database: "LIVEDB_LGMC2024", // the database that contains iwApinv
+  password: "s@p@ssw0rd1",            // matches "Password=..."
+  database: "LIVEDB_LGMC2024",                // the database that contains iwApinv
   options: {
     encrypt: true,                // matches "Encrypt=True"
     trustServerCertificate: true, // matches "TrustServerCertificate=True"
@@ -90,44 +90,54 @@ app.get("/lookup", async (req, res) => {
   try {
     const pool = await sql.connect(config);
     const result = await pool.request()
-  .input("DocNo", sql.NVarChar, docNo)
-  .query(`
-    SELECT
-      Refno AS InvoiceNo,
-      Remarks,
-      dbo.udf_GetFullName(FK_ASUPost) AS PreparedBy,
-      dbo.udf_GetFullName(FK_faVendors) AS Department,
-      DocNo,
-      ROUND(curramt, 2) AS Amount,
-      ROUND(vatamt, 2) AS Vat,
-      ROUND(netlocamt, 2) AS NetLocAmt,
-      ROUND(curramt - vatamt, 2) AS NetOfVat,
-      ROUND((curramt - vatamt) * 0.01, 2) AS WithTax,
-      ROUND(discount, 2) AS Discount,
-      ROUND(curramt - ((curramt - vatamt) * 0.01) - discount, 2) AS TotalPayable
-    FROM iwApinv
-    WHERE DocNo = @DocNo
-  `);
+      .input("DocNo", sql.NVarChar, docNo)
+      .query(`
+        SELECT
+          A.Refno AS InvoiceNo,
+          A.Remarks,
+          dbo.udf_GetFullName(A.FK_ASUPost) AS PreparedBy,
+          dbo.udf_GetFullName(A.FK_faVendors) AS Supplier,
+          W.Description AS Department,
+          A.DocNo,
+          ROUND(A.curramt, 2) AS Amount,
+          ROUND(A.vatamt, 2) AS Vat,
+          ROUND(A.netlocamt, 2) AS NetLocAmt,
+          ROUND(A.curramt - A.vatamt, 2) AS NetOfVat,
+          ROUND((A.curramt - A.vatamt) * 0.01, 2) AS WithTax,
+          ROUND(A.discount, 2) AS Discount,
+          ROUND(
+            A.curramt
+            - ((A.curramt - A.vatamt) * 0.01)
+            - A.discount,
+            2
+          ) AS TotalPayable
+        FROM iwApinv AS A
+        LEFT JOIN mscWarehouse AS W
+          ON A.FK_mscWarehouse = W.PK_mscWarehouse
+        WHERE A.DocNo = @DocNo
+      `);
 
-if (result.recordset.length === 0) {
-  return res.json({ status: "error", message: "No matching Doc No. found in the ERP." });
-}
+    if (result.recordset.length === 0) {
+      return res.json({ status: "error", message: "No matching Doc No. found in the ERP." });
+    }
 
-const row = result.recordset[0];
-return res.json({
-  status: "ok",
-  supplier: row.Department,
-  preparedBy: row.PreparedBy,
-  invoice: row.InvoiceNo,      // <-- fixed: matches the SQL alias exactly
-  remarks: row.Remarks,
-  docNo: row.DocNo,
-  amount: row.Amount,
-  vat: row.Vat,
-  netvat: row.NetOfVat,
-  ewt1: row.WithTax,
-  discount: row.Discount,
-  total: row.TotalPayable
-});
+    const row = result.recordset[0];
+    return res.json({
+      status: "ok",
+      supplier: row.Supplier,      // vendor full name
+      department: row.Department,  // requesting hospital department/warehouse, via FK_mscWarehouse
+      preparedBy: row.PreparedBy,
+      invoice: row.InvoiceNo,
+      remarks: row.Remarks,
+      docNo: row.DocNo,
+      amount: row.Amount,
+      vat: row.Vat,
+      netvat: row.NetOfVat,
+      ewt1: row.WithTax,
+      discount: row.Discount,
+      total: row.TotalPayable
+      // EWT 2% intentionally omitted — stays a manual field in the app.
+    });
 
   } catch (err) {
     console.error(err);
