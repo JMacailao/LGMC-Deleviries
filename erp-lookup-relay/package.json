@@ -1,0 +1,14 @@
+{
+  "name": "lgmc-erp-lookup-relay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Small local relay that lets the LGMC Deliveries app look up Doc No. data from the iwApinv SQL Server table, without exposing the database to the internet.",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "mssql": "^11.0.1"
+  }
+}
